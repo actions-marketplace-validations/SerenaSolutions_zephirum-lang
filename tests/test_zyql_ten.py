@@ -55,3 +55,38 @@ def test_09_setor_desconhecido_recusa():
 def test_10_sem_benchmark_recusa():
     assert s10.run([], 1.0, 2.0, True)["prontidao"] == "REFUSED"
     assert s10.run([{"reproduzivel": True}], 0.4, 1.0, True)["prontidao"] == 1
+
+
+def test_bridge_callable_e_circuito_concordam():
+    from zyql_ten.qiskit_bridge import cross_check
+    for tipo in ("constante", "balanceado"):
+        r = cross_check(3, tipo)
+        assert r["concordam"] is True, r
+        assert r["callable"] == tipo
+
+
+def test_bridge_custo_nativo():
+    from zyql_ten.qiskit_bridge import dj_circuit, transpiled_cost
+    c = transpiled_cost(dj_circuit(4, "balanceado"))
+    assert c["qubits"] == 5
+    assert c["profundidade"] > 0
+    assert isinstance(c["cabe"], bool)
+
+
+def test_nativo_cpp_concorda_com_python():
+    from zyql_ten import native, s06_compute_router as s06
+    if not native.disponivel():
+        pytest.skip("libzyql.so nao compilada")
+    for classica in (0, 1):
+        for estrutural in (0, 1):
+            esperado = s06.run(6, bool(classica), bool(estrutural))["rota"]
+            assert native.rota(classica, estrutural, 13, 40) == esperado
+
+
+def test_nativo_veredito_trivalente():
+    from zyql_ten import native
+    if not native.disponivel():
+        pytest.skip("libzyql.so nao compilada")
+    assert native.veredito(0.99, 0.05) == 1
+    assert native.veredito(0.01, 0.05) == 0
+    assert native.veredito(0.50, 0.05) == "REFUSED"

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Serena Quantum Solutions
 # -*- coding: utf-8 -*-
 """BILLING — checkout e medição da verificacao de recibo (item 4 da oferta).
 
@@ -24,6 +26,19 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 ARQ = Path(os.environ.get("ZYQL_CREDITS_FILE", ".credits.json"))
+
+# Cobranca DESLIGADA por padrao (08/11/2026): a plataforma opera em modo gratuito.
+# Nenhum e-mail e coletado e nenhuma sessao de pagamento e criada enquanto
+# ZYQL_BILLING nao for explicitamente ativado.
+BILLING_ATIVO = os.environ.get("ZYQL_BILLING", "off").strip().lower() in ("on", "1", "true", "yes")
+MOTIVO_DESLIGADO = ("cobranca desativada: a plataforma esta em modo gratuito e nao coleta "
+                    "e-mail nem dados de pagamento")
+
+
+def _exigir_cobranca_ativa() -> None:
+    if not BILLING_ATIVO:
+        raise HTTPException(410, MOTIVO_DESLIGADO)
+
 
 PLANOS = {
     "verify-starter": {"creditos": 25_000, "preco_usd": 50.0, "descricao": "verificacoes avulsas"},
@@ -63,7 +78,8 @@ def _provedor() -> str:
     return "nenhum"
 
 
-def criar_sessao(plano: str, email: str, sucesso_url: str) -> dict:
+def criar_sessao(plano: str, email: str | None, sucesso_url: str) -> dict:
+    _exigir_cobranca_ativa()
     if plano not in PLANOS:
         raise HTTPException(422, f"pacote invalido: escolha entre {sorted(PLANOS)}")
     p = PLANOS[plano]
@@ -103,6 +119,7 @@ def criar_sessao(plano: str, email: str, sucesso_url: str) -> dict:
 
 
 def confirmar(sessao: str, email: str | None = None) -> dict:
+    _exigir_cobranca_ativa()
     """Confirma o pagamento e emite a chave com saldo. Idempotente por sessao."""
     d = _ler()
     sess = d["sessoes"].get(sessao)
@@ -151,7 +168,7 @@ router = APIRouter()
 
 class CheckoutIn(BaseModel):
     plano: str = Field(..., description="verify-starter, verify-growth ou verify-scale")
-    email: str
+    email: str | None = None          # 08/11/2026: opcional; nada e coletado em modo gratuito
     sucesso_url: str = "https://serenasolutions.github.io/zephirum-lang/obrigado"
 
 
@@ -210,7 +227,8 @@ def validar_assinatura_stripe(corpo: bytes, cabecalho: str | None, segredo: str,
 
 @router.post("/webhook")
 async def webhook(request: Request):
-    """Confirma pagamento. Sem verificacao configurada, recusa em vez de aceitar."""
+    """Confirma pagamento. Desligada junto com a cobranca."""
+    _exigir_cobranca_ativa()
     corpo = await request.body()
     seg_stripe = os.environ.get("STRIPE_WEBHOOK_SECRET")
     seg_proprio = os.environ.get("ZYQL_WEBHOOK_SECRET")
@@ -235,10 +253,33 @@ async def webhook(request: Request):
     except Exception:
         raise HTTPException(400, "corpo nao e json")
     sessao, email = dado.get("sessao"), dado.get("email")
-    if str(dado.get("type", "")).startswith("checkout.session"):
+    tipo = str(dado.get("type", ""))
+    if tipo.startswith("checkout.session"):
+        # P1 (reauditoria 07/11/2026): so o evento de CONCLUSAO credita, e so se pago.
         obj = (dado.get("data") or {}).get("object") or {}
+        if tipo in ("checkout.session.expired", "checkout.session.async_payment_failed"):
+            raise HTTPException(409, f"evento sem credito: {tipo}")
+        if tipo != "checkout.session.completed":
+            raise HTTPException(202, f"evento ignorado: {tipo}")
         sessao = obj.get("id") or sessao
         email = ((obj.get("customer_details") or {}).get("email")) or email
+        if not sessao:
+            raise HTTPException(422, "sessao ausente no evento")
+        estado_pagamento = obj.get("payment_status")
+        if estado_pagamento != "paid":
+            # metodo assincrono: completed com payment_status pendente NAO credita
+            raise HTTPException(409, f"pagamento nao concluido: payment_status={estado_pagamento!r}")
+        # confere valor e moeda contra o plano gravado na criacao da sessao
+        registrada = _ler()["sessoes"].get(sessao) or {}
+        plano = registrada.get("plano")
+        if plano not in PLANOS:
+            raise HTTPException(409, f"sessao sem plano conhecido: {sessao}")
+        esperado_centavos = int(round(PLANOS[plano]["preco_usd"] * 100))
+        if obj.get("amount_total") is not None and int(obj["amount_total"]) != esperado_centavos:
+            raise HTTPException(409, "valor do evento diverge do plano: %s != %s"
+                                % (obj.get("amount_total"), esperado_centavos))
+        if obj.get("currency") and str(obj["currency"]).lower() != "usd":
+            raise HTTPException(409, f"moeda inesperada: {obj.get('currency')}")
     if not sessao:
         raise HTTPException(422, "sessao ausente no evento")
     r = confirmar(sessao, email)
@@ -249,12 +290,14 @@ async def webhook(request: Request):
 
 @router.get("/saldo")
 def consultar_saldo(chave: str):
+    _exigir_cobranca_ativa()
     return saldo(chave)
 
 
 @router.post("/verificar")
 def verificar(req: VerifyIn):
     """Verifica um recibo e debita um credito. A conta e feita no servidor."""
+    _exigir_cobranca_ativa()
     d = _ler()
     sess = d["contas"].get(_h(req.chave))
     if not sess:

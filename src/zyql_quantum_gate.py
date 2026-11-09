@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Serena Quantum Solutions
 """
 ZYQL QUANTUM GATE — Deutsch-Jozsa prototype (v1.0.0, 12/10/2026).
 The trivalent decision (1 / 0 / REFUSED) now comes from quantum interference,
@@ -44,7 +46,7 @@ def adaptive_margin(epsilon, shots):
     return adaptive_margin_family(epsilon, shots, 1)
 
 
-def adaptive_margin_family(epsilon, shots, family=1):
+def adaptive_margin_family(epsilon, shots, family=1, modo="conservative"):
     """v1.9.1 — correcao de testes multiplos (Bonferroni, DIRECAO CORRETA).
 
     ACHADO DA FALSIFICACAO (nosso, publico): a primeira implementacao
@@ -66,6 +68,11 @@ def adaptive_margin_family(epsilon, shots, family=1):
         raise ValueError("family precisa ser inteiro >= 1; recebido %r" % family)
     m_single = math.sqrt(math.log(2.0 / epsilon) / (2.0 * shots))
     m_fam = math.sqrt(math.log(2.0 / (epsilon / family)) / (2.0 * shots))
+    if modo == "rigorous":
+        # Limite derivado da uniao para ESTA regra (p0 >= 1-m / p0 <= m):
+        # k * 2 exp(-2 S (1/2 - m)^2) <= epsilon  =>  m <= 1/2 - sqrt(ln(2k/eps)/(2S))
+        # E a margem MAXIMA permitida: acima disso a garantia familiar cai.
+        return 0.5 - math.sqrt(math.log(2.0 * family / epsilon) / (2.0 * shots))
     return 2.0 * m_single - m_fam
 
 
@@ -172,7 +179,7 @@ class ZYQLQuantumGate:
         qc.gates_applied.append("Uf(x) [1 oracle call]")
 
     def run_quantum(self, shots=2048, seed=1701, epsilon=None, family=1):
-        """Interference decision: 1 oracle call.
+        """Interference decision: 1 phase-oracle call (+1 classical f(0) probe).
 
         epsilon (v1.9.0): banda adaptativa por Hoeffding inverso.
         family (v1.9.1): k vereditos conjuntos -> banda Bonferroni
@@ -221,7 +228,7 @@ class ZYQLQuantumGate:
         family_field = {"family": family,
                         "epsilon_family": (epsilon_declared if adaptive else None)}
         if p0 >= 1 - margin:
-            # constant. Which constant? the classical f(0) probe (1 extra call)
+            # constant. Which constant? the classical f(0) probe (P2-4: 2nd call, counted)
             self.oracle_calls += 1
             verdict = 1 if self.f(0) == 1 else 0
             d = {"decision": verdict, "mode": "DECIDED_BY_INTERFERENCE",

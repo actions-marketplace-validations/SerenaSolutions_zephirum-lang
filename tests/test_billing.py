@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Serena Quantum Solutions
 """Checkout e medicao: pagamento emitido, credito debitado, saldo recusado quando acaba."""
 import json
 import os
@@ -15,6 +17,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture()
 def cli(tmp_path, monkeypatch):
     monkeypatch.setenv("ZYQL_CREDITS_FILE", str(tmp_path / "credits.json"))
+    monkeypatch.setenv("ZYQL_BILLING", "on")  # estes testes exercitam o codigo de cobranca
     monkeypatch.setenv("ZYQL_API_TOKEN", "mestre")
     monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
     monkeypatch.delenv("PADDLE_API_KEY", raising=False)
@@ -95,6 +98,7 @@ def test_chave_desconhecida_e_401(cli):
 def cli_stripe(tmp_path, monkeypatch):
     """Cenario com STRIPE_WEBHOOK_SECRET: assinatura criptografica obrigatoria."""
     monkeypatch.setenv("ZYQL_CREDITS_FILE", str(tmp_path / "credits.json"))
+    monkeypatch.setenv("ZYQL_BILLING", "on")  # estes testes exercitam o codigo de cobranca
     monkeypatch.setenv("ZYQL_API_TOKEN", "mestre")
     monkeypatch.delenv("ZYQL_WEBHOOK_SECRET", raising=False)
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_teste")
@@ -109,9 +113,12 @@ def cli_stripe(tmp_path, monkeypatch):
     return TestClient(gateway.app), billing
 
 
-def _evento(sessao="cs_live_1"):
-    return json.dumps({"type": "checkout.session.completed",
-                       "data": {"object": {"id": sessao,
+def _evento(sessao="cs_live_1", tipo="checkout.session.completed", pago="paid",
+            centavos=5000, moeda="usd"):
+    """Payload no formato real do Stripe: o credito exige conclusao E pagamento efetivado."""
+    return json.dumps({"type": tipo,
+                       "data": {"object": {"id": sessao, "payment_status": pago,
+                                           "amount_total": centavos, "currency": moeda,
                                            "customer_details": {"email": "c@x.com"}}}}).encode()
 
 
@@ -170,3 +177,82 @@ def test_evento_sem_sessao_recusa_422(cli_stripe):
     r = c.post("/v1/billing/webhook", content=corpo,
                headers={"Stripe-Signature": f"t={t},v1={sig}", "Content-Type": "application/json"})
     assert r.status_code == 422
+
+
+def _post(cli_stripe, corpo):
+    c, billing = cli_stripe
+    t = str(int(__import__("time").time()))
+    sig = billing._assinar("whsec_teste", t, corpo)
+    return c.post("/v1/billing/webhook", content=corpo,
+                  headers={"Stripe-Signature": f"t={t},v1={sig}", "Content-Type": "application/json"})
+
+
+def test_evento_expirado_nao_credita(cli_stripe):
+    """P1 da reauditoria: checkout.session.expired nao pode emitir chave."""
+    r = _post(cli_stripe, _evento(tipo="checkout.session.expired", pago=None))
+    assert r.status_code == 409, r.text
+
+
+def test_evento_falho_nao_credita(cli_stripe):
+    r = _post(cli_stripe, _evento(tipo="checkout.session.async_payment_failed", pago="unpaid"))
+    assert r.status_code == 409, r.text
+
+
+def test_pagamento_pendente_nao_credita(cli_stripe):
+    """completed com payment_status pendente (metodo assincrono) nao credita."""
+    r = _post(cli_stripe, _evento(pago="unpaid"))
+    assert r.status_code == 409, r.text
+
+
+def test_valor_divergente_do_plano_nao_credita(cli_stripe):
+    r = _post(cli_stripe, _evento(centavos=1))
+    assert r.status_code == 409, r.text
+
+
+def test_moeda_errada_nao_credita(cli_stripe):
+    r = _post(cli_stripe, _evento(moeda="brl"))
+    assert r.status_code == 409, r.text
+
+
+# ---- 08/11/2026: modo gratuito e o padrao ----
+
+def test_cobranca_desligada_por_padrao(tmp_path, monkeypatch):
+    """Sem ZYQL_BILLING=on, nenhuma rota de cobranca opera e nada e coletado."""
+    monkeypatch.setenv("ZYQL_CREDITS_FILE", str(tmp_path / "c.json"))
+    monkeypatch.delenv("ZYQL_BILLING", raising=False)
+    import importlib
+    import api.billing as billing
+    import gateway
+    importlib.reload(billing)
+    importlib.reload(gateway)
+    from fastapi.testclient import TestClient
+    c = TestClient(gateway.app)
+    for rota, corpo in (("/v1/billing/checkout", {"plano": "verify-starter"}),
+                        ("/v1/billing/webhook", {"sessao": "cs_x"})):
+        r = c.post(rota, json=corpo)
+        assert r.status_code == 410, (rota, r.status_code, r.text)
+        assert "gratuito" in r.json()["detail"]
+    assert c.get("/v1/billing/saldo?chave=ZYQLx").status_code == 410
+
+
+def test_checkout_nao_exige_email(tmp_path, monkeypatch):
+    """O campo email deixou de ser obrigatorio: sem ele o schema valida."""
+    import importlib
+    import api.billing as billing
+    importlib.reload(billing)
+    m = billing.CheckoutIn(plano="verify-starter")
+    assert m.email is None
+
+
+def test_modo_gratuito_nao_cria_arquivo_de_contas(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZYQL_CREDITS_FILE", str(tmp_path / "c2.json"))
+    monkeypatch.delenv("ZYQL_BILLING", raising=False)
+    import importlib
+    import api.billing as billing
+    import gateway
+    importlib.reload(billing)
+    importlib.reload(gateway)
+    from fastapi.testclient import TestClient
+    c = TestClient(gateway.app)
+    c.post("/v1/billing/checkout", json={"plano": "verify-starter", "email": "a@b.c"})
+    assert not (tmp_path / "c2.json").exists(), "modo gratuito nao deve gravar dados de cobranca"

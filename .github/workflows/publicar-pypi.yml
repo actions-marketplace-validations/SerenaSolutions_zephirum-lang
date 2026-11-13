@@ -47,7 +47,7 @@ jobs:
             echo "::error::A versao $V ja esta no PyPI. Suba a versao antes de publicar."
             exit 1
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Instalar o projeto e as dependencias de teste
@@ -70,7 +70,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: pip install build

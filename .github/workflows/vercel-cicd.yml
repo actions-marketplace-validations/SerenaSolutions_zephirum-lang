@@ -44,7 +44,7 @@ jobs:
     name: portao de integridade do site
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: o site tem entrada e assets
         run: |
           test -f site/index.html || { echo "site/index.html ausente"; exit 1; }
@@ -56,7 +56,7 @@ jobs:
     needs: guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-node@v4
         with:

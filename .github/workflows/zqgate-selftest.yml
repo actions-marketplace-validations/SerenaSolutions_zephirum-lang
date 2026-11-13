@@ -6,7 +6,7 @@ jobs:
   selftest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       # Teste da propria Action com evidencia real do lote de endurecimento:
       # 2048 tiros no caso constante, p(000) = 0,9644 -> 1975 sucessos.
       # Antes passava "battery: all", que a Action nao aceita: shots chegava

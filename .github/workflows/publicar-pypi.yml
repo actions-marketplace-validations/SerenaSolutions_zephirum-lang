@@ -33,7 +33,7 @@ jobs:
         run: |
           echo "::error::Confirmacao ausente. Nada foi publicado."
           exit 1
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - id: v
         run: |
           V=$(python3 -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
@@ -69,7 +69,7 @@ jobs:
       id-token: write                  # OIDC: sem token de API guardado
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

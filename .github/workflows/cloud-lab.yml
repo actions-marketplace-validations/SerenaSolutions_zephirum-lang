@@ -51,7 +51,7 @@ jobs:
     env:
       AWS_SECRET: ${{ secrets.AWS_ROLE_ARN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: autenticar aws
         if: env.AWS_SECRET != ''
         uses: aws-actions/configure-aws-credentials@v6.3.0
@@ -68,7 +68,7 @@ jobs:
     env:
       AZ_CREDS: ${{ secrets.AZURE_CREDENTIALS }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: autenticar azure
         if: env.AZ_CREDS != ''
         uses: azure/login@v3.1.0
@@ -84,7 +84,7 @@ jobs:
     env:
       GCP_WIF: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: autenticar gcp
         if: env.GCP_WIF != ''
         uses: google-github-actions/auth@v3
@@ -103,7 +103,7 @@ jobs:
     env:
       CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: wrangler
         if: env.CF_TOKEN != ''
         uses: cloudflare/wrangler-action@v4.1.3

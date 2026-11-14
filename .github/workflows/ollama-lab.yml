@@ -32,7 +32,7 @@ jobs:
     env:
       MODELO: ${{ inputs.modelo }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: instalar e subir ollama
         uses: ai-action/setup-ollama@798483f55e7466b967eee0627554aa3d0e0f3279

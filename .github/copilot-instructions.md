@@ -75,3 +75,12 @@ propõe código NUNCA aprova o próprio trabalho.
 IMPLEMENTADO (código + teste + evidência) · EXPERIMENTAL (executado com limitações) ·
 ESPECIFICAÇÃO (definido, não implementado) · BLOQUEADO (não pode ser anunciado).
 Uma especificação elegante nunca é apresentada como linguagem pronta.
+
+## Governança
+
+A diretriz de governança do agente arquiteto é privativa da Serena Solutions e não é publicada
+neste repositório. Ela vive no repositório privado `quanso-os`, em `docs/GOVERNANCA-AGENTE-ARQUITETO.md`.
+
+Resumo operacional público, sem detalhe estratégico: evidência antes de afirmação; nada é
+concluído sem teste executado; toda falha termina em correção, evidência ou limitação declarada;
+não inventar arquivo, commit, teste, resultado ou funcionalidade.
